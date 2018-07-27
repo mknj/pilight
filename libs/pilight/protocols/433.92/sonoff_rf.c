@@ -30,7 +30,6 @@
 #include "../../core/gc.h"
 #include "sonoff_rf.h"
 
-#define AVG_PULSE_LENGTH 500
 #define GAP_MIN_LENGTH 7800
 #define GAP_MAX_LENGTH 8200
 #define RAW_LENGTH 50
@@ -53,22 +52,20 @@ static void parseCode(void) {
 	int binary[RAW_LENGTH/2];
 	int id = 0;
 	int buttons=0;
-	int x = 0, i = 0;
+	int i = 0;
 	if(sonoff_rf->rawlen!=RAW_LENGTH) {
 		logprintf(LOG_ERR, "sonoff_rf: parsecode - invalid parameter passed %d", sonoff_rf->rawlen);
 		return;
 	}
-	for(x=0;x<RAW_LENGTH;x+=2) {
-		if(sonoff_rf->raw[x] < AVG_PULSE_LENGTH) {
-			binary[i++] = 0;
-		} else {
-			binary[i++] = 1;
-		} 
+	// found sonoff remote with shortpulselen from 200..600 and longpulselen from 500..1500
+	// adding the two pulses for one bit together ranges from 900..1900
+	// running on a raspberry pi 3 with additional software.
+	// times vary very much for different remotes, but are stable using same remote
+	for(i=0;i<RAW_LENGTH/2;++i) {
+		binary[i]=(sonoff_rf->raw[i*2]>sonoff_rf->raw[i*2+1]) ? 1 : 0;
 	}
-	id = binToDec(binary, 0, 19);
-	id = id & 0xFFFFF;
-	buttons = binToDec(binary, 20, 23);
-	buttons = buttons & 0xF;
+	id = binToDecRev(binary, 0, 19);
+	buttons = binToDecRev(binary, 20, 23);
 	sonoff_rf->message = json_mkobject();
 	json_append_member(sonoff_rf->message, "id", json_mknumber(id, 0));
 	json_append_member(sonoff_rf->message, "buttonmask", json_mknumber(buttons, 0));
@@ -80,15 +77,13 @@ __attribute__((weak))
 void sonoffRfInit(void) {
 	protocol_register(&sonoff_rf);
 	protocol_set_id(sonoff_rf, "sonoff_rf_sensor");
-	protocol_device_add(sonoff_rf, "sonoff_rf_sensor", "sonoff remote control");
+	protocol_device_add(sonoff_rf, "sonoff_rf_sensor", "sonoff RF protocol");
 	sonoff_rf->devtype = SWITCH;
 	sonoff_rf->hwtype = RF433;
 	sonoff_rf->maxgaplen = GAP_MAX_LENGTH;
 	sonoff_rf->mingaplen = GAP_MIN_LENGTH;
 	sonoff_rf->minrawlen = RAW_LENGTH;
 	sonoff_rf->maxrawlen = RAW_LENGTH;
-
-	options_add(&sonoff_rf->options, 'i', "id", OPTION_HAS_VALUE, DEVICES_ID, JSON_NUMBER, NULL, "^[0-9]{1-4}$");
 
 	sonoff_rf->parseCode=&parseCode;
 	sonoff_rf->validate=&validate;
